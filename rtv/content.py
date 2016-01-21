@@ -127,6 +127,9 @@ class Content(object):
         """
         Parse through a submission and return a dict with data ready to be
         displayed through the terminal.
+        NOTE: If a comment object is passed in, this function will attempt
+              to parse the comment into an object that can be displayed as a
+              post in the main submission view
 
         Definitions:
             permalink - Full URL to the submission comments.
@@ -144,17 +147,18 @@ class Content(object):
         data = {}
         data['object'] = sub
         data['type'] = 'Submission'
-        data['title'] = sub.title
-        data['text'] = sub.selftext
+        data['title'] = sub.title if hasattr(sub, 'title') else sub.body
+        data['text'] = sub.selftext if hasattr(sub, 'selftext') else sub.body
         data['created'] = cls.humanize_timestamp(sub.created_utc)
-        data['comments'] = '{0} comments'.format(sub.num_comments)
+        data['comments'] = '{0} comments'.format(sub.num_comments) \
+            if hasattr(sub, 'num_comments') else ''
         data['score'] = '{0} pts'.format(
-            '-' if sub.hide_score else sub.score)
+            sub.score if hasattr(sub, 'score') else sub.score_hidden)
         data['author'] = name
         data['permalink'] = sub.permalink
         data['subreddit'] = six.text_type(sub.subreddit)
         data['flair'] = '[{0}]'.format(flair.strip(' []')) if flair else ''
-        data['url_full'] = sub.url
+        data['url_full'] = sub.url if hasattr(sub, 'url') else sub.permalink
         data['likes'] = sub.likes
         data['gold'] = sub.gilded > 0
         data['nsfw'] = sub.over_18
@@ -162,16 +166,16 @@ class Content(object):
         data['index'] = None  # This is filled in later by the method caller
         data['saved'] = sub.saved
 
-        if sub.url.split('/r/')[-1] == sub.permalink.split('/r/')[-1]:
+        if data['url_full'].split('/r/')[-1] == sub.permalink.split('/r/')[-1]:
             data['url'] = 'self.{0}'.format(data['subreddit'])
             data['url_type'] = 'selfpost'
-        elif reddit_link.match(sub.url):
+        elif reddit_link.match(data['url_full']):
             # Strip the subreddit name from the permalink to avoid having
             # submission.subreddit.url make a separate API call
-            data['url'] = 'self.{0}'.format(sub.url.split('/')[4])
+            data['url'] = 'self.{0}'.format(data['url_full'].split('/')[4])
             data['url_type'] = 'x-post'
         else:
-            data['url'] = sub.url
+            data['url'] = data['url_full']
             data['url_type'] = 'external'
 
         return data
@@ -195,7 +199,6 @@ class Content(object):
         """
         Convert a utc timestamp into a human readable relative-time.
         """
-
         timedelta = datetime.utcnow() - datetime.utcfromtimestamp(utc_timestamp)
 
         seconds = int(timedelta.total_seconds())
@@ -260,7 +263,6 @@ class SubmissionContent(Content):
         url = url.replace('http:', 'https:')
         submission = reddit.get_submission(url, comment_sort=order)
         return cls(submission, loader, indent_size, max_indent_level, order)
-
 
     def get(self, index, n_cols=70):
         """
@@ -447,12 +449,7 @@ class SubredditContent(Content):
             except StopIteration:
                 raise IndexError
             else:
-                # TODO: In order to display saved comment, we need to
-                # coerce the comment into a submission
-                try:
-                    data = self.strip_praw_submission(submission)
-                except:
-                    continue
+                data = self.strip_praw_submission(submission)
                 data['index'] = index
                 # Add the post number to the beginning of the title
                 data['title'] = '{0}. {1}'.format(index+1, data.get('title'))
